@@ -1,0 +1,20 @@
+# Dependencias de Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.pytest_cache/
+
+# Archivos de la aplicación
+*.env 
+
+# Logs
+*.log
+
+# Bases de Datos de Flower
+# Importante: Excluimos la base de datos de Flower para no subirla 
+# al repositorio, aunque persistirá localmente gracias a Docker Volume.
+flower.db
+# Si cambiaste la ruta en docker-compose, asegúrate de que el nombre del archivo esté aquí:
+/var/flower_data/flower.db

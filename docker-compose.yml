@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # 1. Redis (Broker y Backend de Resultados de Celery)
+  redis:
+    image: redis:7-alpine
+    container_name: microservice_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+
+  # 2. FastAPI Web Service (Entrada de peticiones POST)
+  web:
+    build: .
+    container_name: microservice_fastapi
+    env_file:
+      - ./app/.env # Usamos el archivo .env para las variables de configuración
+    volumes:
+      - ./app:/app/app # Montar el código para desarrollo/hot-reload si se desea
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    # El comando por defecto del Dockerfile ejecuta uvicorn
+
+  # 3. Celery Worker (Procesador de Tareas)
+  worker:
+    build: .
+    container_name: microservice_celery_worker
+    env_file:
+      - ./app/.env # Mismas variables de entorno
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      - redis
+      - web
+    # Sobrescribir el CMD para que ejecute el worker de Celery
+    # 'app.tasks' es donde está inicializada nuestra aplicación Celery
+    command: celery -A app.tasks worker --loglevel=info --concurrency=1 -P solo --events    # Nota: Usamos -P solo (modo uniproceso) por simplicidad en Docker, 
+    # pero para producción se recomienda el modo 'prefork' (por defecto) o 'gevent'.
+
+  # 4. Flower (Monitor de Celery)
+  flower:
+    build: . 
+    container_name: microservice_flower
+    env_file:
+      - ./app/.env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0 # Aseguramos la URL interna de Docker
+      - CELERY_EVENTS_BROKER=redis://redis:6379/
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0 # ¡AÑADE ESTO si falla!
+    ports:
+      - "5555:5555" # Puerto de Flower para el dashboard web
+    depends_on:
+      - redis
+      - worker
+    volumes:
+      - ./app:/app/app
+      # ⬇️ CAMBIO 1: Mapear el volumen nombrado
+      - flower_db_volume:/var/flower_data
+    # ⬇️ CAMBIO 2: Apuntar el --db a la ruta persistente
+    command: celery -A app.tasks flower --broker=redis://redis:6379/0 --port=5555 --basic_auth=username:password --loglevel=INFO --persistent=True --db=/var/flower_data/flower.db --events    # El comando sigue siendo correcto, pero ahora se ejecuta en la imagen correcta
+
+volumes:
+  flower_db_volume:
